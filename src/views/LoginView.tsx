@@ -1,14 +1,45 @@
 import { useState } from "react"
 import Hero from "@assets/image/socmed-img.webp"
 import Logo from "@assets/image/logo.webp"
-import { Link } from "react-router"
-import { FcGoogle } from "react-icons/fc"
+import { Link, useNavigate } from "react-router"
+import { useGoogleLogin } from '@react-oauth/google';
+import { FcGoogle } from "react-icons/fc";
+import { useMutation } from "@tanstack/react-query";
+import { api } from "../lib/axios";
+import type { AxiosError } from "axios";
 
 
 const LoginView = () => {
+  const navigate = useNavigate();
   const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
   const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({})
+
+  const loginMutation = useMutation({
+    mutationFn: async (dataToSubmit: { email?: string; username?: string; password?: string }) => {
+      const res = await api.post("/auth/login", dataToSubmit);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+      }
+      alert("Login Berhasil!");
+      navigate("/");
+    },
+    onError: (error: AxiosError<{ message?: string }>) => {
+      const message = error.response?.data?.message || "Terjadi kesalahan koneksi ke server";
+      
+      // Petakan error response dari backend Express ke input error UI
+      if (error.response?.status === 404) {
+        setErrors({ identifier: message });
+      } else if (error.response?.status === 401) {
+        setErrors({ password: message });
+      } else {
+        alert(message);
+      }
+    }
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,21 +54,42 @@ const LoginView = () => {
       newErrors.password = "Password wajib diisi"
     }
 
-    // Simulasi validasi kredensial (admin/admin123 sebagai contoh sukses)
-    if (identifier.trim() && identifier !== "admin" && identifier !== "admin@gmail.com") {
-      newErrors.identifier = "Email atau username salah"
-    }
-
-    if (password.trim() && password !== "admin123") {
-      newErrors.password = "Password salah"
-    }
-
     setErrors(newErrors)
 
     if (Object.keys(newErrors).length === 0) {
-      alert("Login Berhasil!")
+      loginMutation.mutate({
+        email: identifier,
+        username: identifier,
+        password: password
+      });
     }
   }
+
+  const googleMutation = useMutation({
+    mutationFn: async (googleToken: string) => {
+      const res = await api.post("/auth/google", { googleToken });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+      }
+      alert("Login Google Berhasil!");
+      navigate("/");
+    },
+    onError: (error: AxiosError<{ message?: string }>) => {
+      const message = error.response?.data?.message || "Otorisasi Google gagal";
+      alert(message);
+    }
+  });
+
+  // Google Auth Menggunakan custom hook agar tampilan responsive 100% dan bebas distyling
+  const loginGoogle = useGoogleLogin({
+    onSuccess: (tokenResponse) => {
+      googleMutation.mutate(tokenResponse.access_token);
+    },
+    onError: () => console.log('Proses Login Google Gagal'),
+  });
 
   return (
     <div className="flex flex-col xl:flex-row w-full max-w-5xl items-center xl:justify-between gap-5 xl:gap-20 pt-10">
@@ -113,14 +165,16 @@ const LoginView = () => {
                 <div className="text-right mt-2">
                   <Link to="/forgot-password" className="text-xs link link-hover link-primary font-semibold">Forgot password?</Link>
                 </div>
-                <button type="submit" className="btn btn-primary text-white w-full mt-4">Login</button>
+                <button type="submit" className="btn btn-primary text-white w-full mt-4" disabled={loginMutation.isPending}>
+                  {loginMutation.isPending ? <span className="loading loading-spinner loading-sm"></span> : "Login"}
+                </button>
               </form>
 
                <div className="divider">OR</div>
-
-              <button type="button" className="btn btn-outline w-full flex items-center justify-center gap-2">
+              
+              <button onClick={() => loginGoogle()} type="button" className="btn btn-outline w-full flex items-center justify-center gap-2">
                 <FcGoogle className="text-xl" />
-                Sign in with Google
+                Continue with Google
               </button>
               
               {/* Register */}
